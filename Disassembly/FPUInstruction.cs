@@ -13,48 +13,10 @@ class FPUInstruction : Instruction
     public static FPUInstruction Read(uint data)
     {
         FPUInstruction inst = new FPUInstruction();
-        uint type = (data >> 21) & 0x1f;
-        switch (type)
+        uint function = (data >> 21) & 0x1f;
+        switch (function)
         {
-            case 0x0:
-                inst.Name = "MFC1";
-                inst.FS = (data >> 11) & 0x1f;
-                inst.RT = (data >> 16) & 0x1f;
-                inst.Format = InstFormat.RtFs;
-                return inst;
 
-            case 0x10: // Special 
-                return new FPUSpecialInstruction(data);
-            case 0x8: // Branches
-                return new FPUBranchInstruction(data);
-
-            case 0x2:
-                inst.Name = "CFC1";
-                inst.FS = (data >> 11) & 0x1f;
-                inst.RT = (data >> 16) & 0x1f;
-                inst.Format = InstFormat.RtFs;
-                return inst;
-
-            case 0x4:
-                inst.Name = "MTC1";
-                inst.FS = (data >> 11) & 0x1f;
-                inst.RT = (data >> 16) & 0x1f;
-                inst.Format = InstFormat.RtFs;
-                return inst;
-
-            case 0x6:
-                inst.Name = "CTC1";
-                inst.FS = (data >> 11) & 0x1f;
-                inst.RT = (data >> 16) & 0x1f;
-                inst.Format = InstFormat.RtFs;
-                return inst;
-
-            case 0x14:
-                inst.Name = "CVT.S.W";
-                inst.FD = (data >> 6) & 0x1f;
-                inst.FS = (data >> 11) & 0x1f;
-                inst.Format = InstFormat.FdFs;
-                return inst;
         }
 
 
@@ -210,5 +172,10 @@ class WC1Instruction : Instruction
     public override string ToString(string symbol)
     {
         return $"{Name} $f{FT}, {symbol}({Base})";
+    }
+
+    public override string ToCMacro(string branch = "")
+    {
+        return $"{Name.ToUpper()}(ctx, ctx->f{FT}, {Offset}, ctx->{Base})";
     }
 }

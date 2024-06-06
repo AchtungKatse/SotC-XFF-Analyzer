@@ -18,4 +18,6 @@ public class JumpInstruction : Instruction
     {
         return $"{Name} {symbol}";
     }
+
+    public override string ToCMacro(string branch = "") => "";
 }

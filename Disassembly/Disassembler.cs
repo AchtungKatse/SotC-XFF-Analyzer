@@ -10,8 +10,14 @@ public class GenericInstruction : Instruction
 
         return "Generic instruction should not have relocation";
     }
-}
 
+    public override string ToCMacro(string branch = "")
+    {
+        if (Name.ToLower() == "nop")
+        return "NOP()";
+        else return base.ToCMacro();
+    }
+}
 
 static class Dissasembler
 {
@@ -30,29 +36,20 @@ static class Dissasembler
         // Unique opcode overrides
         switch (opcode)
         {
-            case 0x31:
-                return new WC1Instruction(data, opcode);
+            default: return new ImmediateInstruction(data, opcode);
+            case 0x0: return new RegisterInstruction(data);
+            case 0x1: return new RegimmInstruction(data);
+            case 0x2: return new JumpInstruction(data, opcode);
+            case 0x3: return new JumpInstruction(data,opcode);
+            
+            case 0x10: return new Cop0Instruction(data);
+            case 0x11: return new COP1Instruction(data);
+            case 0x12: return new COP2Instruction(data);
+            case 0x1C: return new MMIInstruction(data);
 
-            case 0x39:
-                return new WC1Instruction(data, opcode);
+            case 0x31: return new WC1Instruction(data, opcode);
+            case 0x39: return new WC1Instruction(data, opcode);
         }
-
-
-        if (opcode == 0)
-        {
-            // Register
-            return new RegisterInstruction(data);
-        }
-
-        if (opcode == 0x2 || opcode == 0x3)
-        {
-            return new JumpInstruction(data, opcode);
-        }
-
-        if (opcode == 0x11)
-            return FPUInstruction.Read(data); // Done this way because fpu instructions are much more complicated
-
-        return new ImmediateInstruction(data, opcode);
     }
 
     private static string GetFPUOpcodeToName(int data)
@@ -86,5 +83,6 @@ static class Dissasembler
 
         return $"UNKNOWN FPU INSTRUCTION: 0x{opcode:X} TYPE: 0x{type:X}";
     }
+
 
 }

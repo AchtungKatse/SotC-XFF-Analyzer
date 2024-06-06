@@ -1,4 +1,20 @@
-    public enum Register
+
+using System.Numerics;
+
+public class Register
+{
+    public static bool WriteRegisterName = true;
+
+    public Register(uint value)
+    {
+        register = (_Register)value;
+    }
+    public Register(int value)
+    {
+        register = (_Register)value;
+    }
+
+    public enum _Register
     {
         zero = 0,
         at = 1,
@@ -34,6 +50,41 @@
         ra = 31,
     }
 
+    private _Register register;
+
+    public static implicit operator int(Register r)
+    {
+        return (int)r.register;
+    }
+
+    public static implicit operator Register(int r)
+    {
+        return new Register(r);
+    }
+    public static implicit operator Register(uint r)
+    {
+        return new Register((int)r);
+    }
+
+    public static bool operator ==(Register r1, Register r2)
+    {
+        return r1.register.Equals(r2.register);
+    }
+
+
+    public static bool operator !=(Register r1, Register r2)
+    {
+        return !r1.register.Equals(r2.register);
+    }
+
+
+    public override string ToString()
+    {
+        if (WriteRegisterName)
+            return register.ToString();
+        else return ((int)register).ToString();
+    }
+}
 
 public abstract class Instruction
 {
@@ -45,12 +96,19 @@ public abstract class Instruction
         Data = data;
     }
 
+    public virtual string ToCMacro(string branch = "")
+    {
+        return $"{Name.ToUpper()}(); // Unimplemented";
+    }
+
 
     protected static string OpcodeToName(int opcode)
     {
         switch (opcode)
         {
-            default: return $"UNKNOWN-OPCODE '0x{opcode:X}'";
+            default: 
+                Console.WriteLine($"Unknown opcode 0x{opcode:X} / {opcode >> 3 & 0x7:b} {opcode & 7:b}b");
+                return $"UNKNOWN-OPCODE '0x{opcode:X}'";
             case 0x0: return "WRONG REGISTER TYPE";
             case 0x1: return "UNDEFINED REGIMM";
             case 0x2: return "j";
@@ -62,7 +120,7 @@ public abstract class Instruction
             case 0x8: return "addi";
             case 0x9: return "addiu";
             case 0xA: return "slti";
-            case 0xB: return "stliu";
+            case 0xB: return "sltiu";
             case 0xC: return "andi";
             case 0xD: return "ori";
             case 0xE: return "xori";
@@ -77,7 +135,10 @@ public abstract class Instruction
             case 0x18: return "daddi";
             case 0x19: return "daddiu";
             case 0x1a: return "ldl";
-            case 0x1b: return "ldlr";
+            case 0x1b: return "ldr";
+            // case 0x1c: return "ldl";
+            case 0x1e: return "lq";
+            case 0x1f: return "sq";
             case 0x20: return "lb";
             case 0x21: return "lh";
             case 0x22: return "lwl";
@@ -93,6 +154,7 @@ public abstract class Instruction
             case 0x2c: return "sdl";
             case 0x2d: return "sdr";
             case 0x2e: return "swr";
+            case 0x2f: return "cache";
             case 0x31: return "lwc1";
             case 0x33: return "pref";
             case 0x37: return "ld";

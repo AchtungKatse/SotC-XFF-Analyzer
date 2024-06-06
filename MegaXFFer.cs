@@ -320,13 +320,13 @@ static class MegaXFFer
         relocationFileAddress = sectionStarts[sectionName] + relocation.offset + sectionToXffOffset[sectionName][xffIndex];
         low16Address = relocationFileAddress;
 
-        int relocationType = relocation.Type;
+        Relocation.RelocationType relocationType = relocation.Type;
         int nextRelocationIndex = relocationIndex + 1;
 
-        while (relocationType == 0x5 && nextRelocationIndex < header.relocations.Length)
+        while (relocationType == Relocation.RelocationType.High16 && nextRelocationIndex < header.relocations.Length)
         {
             Relocation nextRelocation = header.relocations[nextRelocationIndex];
-            if (nextRelocation.Type == 0x6)
+            if (nextRelocation.Type == Relocation.RelocationType.Low16)
             {
                 low16Address = sectionStarts[sectionName] + nextRelocation.offset + sectionToXffOffset[sectionName][xffIndex];
                 break;
@@ -398,26 +398,26 @@ static class MegaXFFer
                 // Console.WriteLine($"\tSymbol Section:   {SectionHeaders[symbol.section].Name}");
                 return false;
 
-            case 0:
+            case Relocation.RelocationType.Null:
                 Console.WriteLine("Null relocation type");
                 return false;
 
-            case 2: // I think
+            case Relocation.RelocationType.Jump: // I think
                 bw.Write((uint)symbolFileAddress + baseInstruction);
                 return true;
 
-            case 4:
+            case Relocation.RelocationType.Somethign:
                 uint writtenData = (uint)(((symbolFileAddress >> 2 & 0x3ffffff) + ((uint)baseInstruction & 0x3ffffff)) | ((uint)baseInstruction & ~0x3ffffff));
                 bw.Write(writtenData);
                 return true;
 
-            case 5:  // upper half, Probably implemented wrong
+            case Relocation.RelocationType.High16:  // upper half, Probably implemented wrong
                 bw.Write((uint)(baseInstruction & 0xffff0000) | ((upperAddressData + (baseInstruction & 0xffff))));
 
 
                 return true;
 
-            case 6:  // Lower half of the target address
+            case Relocation.RelocationType.Low16:  // Lower half of the target address
                      // bw.Write((int)((symbolFileAddress & 0xffff) + baseInstruction));
 
                 bw.Write((int)(baseInstruction & 0xffff0000 | lowerAddressData));
@@ -523,8 +523,10 @@ static class MegaXFFer
             Directory.CreateDirectory(dir);
 
         StringBuilder elfSectionsWriter = new StringBuilder();
-        foreach (var header in elf.SectionHeaders)
+        for (int i = 0; i < elf.SectionHeaders.Length; i++)
         {
+            var header = elf.SectionHeaders[i];
+            elfSectionsWriter.AppendLine($"Section 0x{i:X}");
             elfSectionsWriter.AppendLine(header.ToString());
         }
         File.WriteAllText($"{dir}/Sections.txt", elfSectionsWriter.ToString());
