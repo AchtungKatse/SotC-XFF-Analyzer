@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 public class ImmediateInstruction : Instruction
 {
-    public enum Format { Unknown, RsRt, RtRs, Rt, RtOffsetBase, BranchRsRt, BranchRs, Cache};
+    public enum Format { Unknown, RsRt, RtRs, Rt, RtOffsetBase, BranchRsRt, BranchRs, Cache };
 
     public short Immediate { get; set; }
     public Register RS { get; set; }
@@ -128,38 +128,6 @@ public class ImmediateInstruction : Instruction
                 return $"{Name} ${rs}, {immediate}";
             case Format.Cache: return $"{Name} {RT}, {immediate}(${rs});";
         }
-
-        if (rs == "")
-            rs = RS.ToString();
-        if (rt == "")
-            rt = RT.ToString();
-
-        if (Name == "addiu")
-        {
-            // if (rs == "zero")
-            // return $"mov ${rt}, {immediate}"
-            return $"{Name} ${rt}, ${rs}, {immediate}";
-        }
-
-        if (Name == "beq")
-        {
-            immediate = Immediate < 0 ? $"-0x{-Immediate << 2:X}" : $"0x{Immediate << 2:X}";
-            return $"{Name} ${rs}, ${rt}, {immediate}";
-        }
-
-        if (Name == "ori" || Name == "andi")
-            return $"{Name} ${rs}, ${rt}, 0x{(ushort)Immediate:X}";
-
-        if (Name == "lui")
-            return $"{Name} ${rt}, {immediate}";
-
-        if (Name == "lwc1")
-            return $"{Name} $f{(int)RS}, {Immediate:X}(${rt})";
-
-        if (Name == "MTC1")
-            return $"{Name} ${rt}, $f{(int)RS}";
-
-        return $"{Name} ${rt}, {immediate}(${rs})";
     }
 
     public override string ToString()
@@ -189,12 +157,9 @@ public class ImmediateInstruction : Instruction
             case Format.BranchRs:
                 return $"{Name} ${RS}, ${symbol}";
         }
-
-        string immText = Immediate < 0 ? $"-0x{-Immediate:X}" : $"0x{Immediate:X}";
-        return ToString(symbol, RS.ToString(), RT.ToString());
     }
 
-    public override string ToCMacro(string branch = "") 
+    public override string ToCMacro(string branch = "")
     {
         string name = Name.ToUpper();
         switch (format)

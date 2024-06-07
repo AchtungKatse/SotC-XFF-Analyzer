@@ -1,43 +1,66 @@
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text;
 
-public static class Splitter
+public class Splitter
 {
+
     public static void WriteSplitsToFile(string path, Split[] splits, string[] sectionNames)
     {
-        var orderedSplits = (from x in splits orderby x.section ascending select x).ToArray();
+        var orderedSplits = (from x in splits orderby x.Section ascending select x).ToArray();
 
         StringBuilder sb = new StringBuilder(splits.Length * 100);
         for (int i = 0; i < orderedSplits.Length; i++)
         {
             Split split = orderedSplits[i];
             sb.AppendLine(split.Name);
-            sb.AppendLine($"\tStart:   0x{split.start:X}");
-            if (split.end > 0)
-                sb.AppendLine($"\tEnd:     0x{split.end:X}");
-            sb.AppendLine($"\tSection: {sectionNames[split.section]}");
-            if (!string.IsNullOrEmpty(split.type))
-                sb.AppendLine($"\tType:    {split.type}");
+            sb.AppendLine($"\tStart:   0x{split.StartAddress:X}");
+            if (split.End > 0)
+                sb.AppendLine($"\tEnd:     0x{split.End:X}");
+            sb.AppendLine($"\tSection: {sectionNames[split.Section]}");
+
+            if (!string.IsNullOrEmpty(split.Type))
+                sb.AppendLine($"\tType:    {split.Type}");
         }
 
+        // Create the needed directory for the file
+        FileInfo info = new FileInfo(path);
+        info.Directory?.Create();
+
+        // Then write the file
         File.WriteAllText(path, sb.ToString());
     }
 
-    public static Split[] LoadSplitsFromFile(string path, string[] sectionNames, out Dictionary<string, FunctionDefinition> functionDefinitions)
+    public static Split[]? LoadSplitsFromFile(string path, string[] sectionNames, out Dictionary<string, FunctionDefinition> functionDefinitions)
     {
-        string[] lines = File.ReadAllLines(path);
-        List<Split> splits = new List<Split>();
-        functionDefinitions = new Dictionary<string, FunctionDefinition>();
+        // Check if the splits exost
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        {
+            Debug.LogCritical($"Failed to get split file \"{path}\"");
+            functionDefinitions = new Dictionary<string, FunctionDefinition>();
+            return null;
+        }
 
+        // Load all the lines
+        Debug.LogInfo($"Reading splits file {path}");
+        string[] lines = File.ReadAllLines(path);
+
+        // Create output variables
+        List<Split> splits = [];
+        functionDefinitions = [];
+
+        // Go through each line of split file
         for (int i = 0; i < lines.Length;)
         {
             int oldIndex = i;
+
+            // Read and save each split
             Split split = ReadSplit(lines, ref i, sectionNames, out FunctionDefinition? function);
             splits.Add(split);
 
             if (functionDefinitions.ContainsKey(split.Name))
             {
-                Console.WriteLine($"Skipping duplicate function name '{split.Name}'");
+                Debug.LogWarn($"Skipping duplicate function name '{split.Name}'");
                 continue;
             }
 
@@ -46,7 +69,7 @@ public static class Splitter
 
             if (oldIndex == i)
             {
-                Console.WriteLine("Failed to read split");
+                Debug.LogWarn("Failed to read split");
                 break;
             }
         }
@@ -75,10 +98,11 @@ public static class Splitter
         split.Name = line;
 
         // Check if the split is a function
-        if (line.Contains(' ') && line.Contains('(') && line.Contains(')'))
+        if (line.Contains('(') && line.Contains(')'))
         {
             function = ReadFunctionDefinition(line);
             split.functionDefinition = function;
+            Debug.LogDebug($"Read function {function.name} from splits");
 
             // Override the split name to the function name
             split.Name = function.name;
@@ -109,50 +133,50 @@ public static class Splitter
             switch (name.ToLower())
             {
                 case "start":
-                    split.start = ParseInt(value);
+                    split.StartAddress = ParseInt(value);
                     break;
                 case "length":
                     int newLength = ParseInt(value);
-                    if (split.end > 0 && split.length != newLength)
+                    if (split.End > 0 && split.Length != newLength)
                     {
-                        Console.WriteLine($"Split {name} has conflicting length and endpoint");
-                        split.end = split.start + newLength;
+                        Debug.LogWarn($"Split {name} has conflicting length and endpoint");
+                        split.End = split.StartAddress + newLength;
                     }
-                    split.end = split.start + newLength;
+                    split.End = split.StartAddress + newLength;
                     break;
                 case "section":
 
                     if (value.StartsWith("0x"))
                     {
-                        split.section = ParseInt(value);
+                        split.Section = ParseInt(value);
                         break;
                     }
 
-                    split.section = -1;
+                    split.Section = -1;
                     for (int i = 0; i < sectionNames.Length; i++)
                     {
                         if (sectionNames[i] == value)
                         {
-                            split.section = i;
+                            split.Section = i;
                             break;
                         }
                     }
 
-                    if (split.section == -1)
+                    if (split.Section == -1)
                     {
-                        Console.WriteLine("Failed to get section index");
+                        Debug.LogError("Failed to get section index");
                     }
                     break;
                 case "type":
-                    split.type = value.Trim();
+                    split.Type = value.Trim();
                     break;
                 case "end":
-                    newLength = split.start - ParseInt(value);
-                    if (split.length > 0 && split.length != newLength)
+                    newLength = split.StartAddress - ParseInt(value);
+                    if (split.Length > 0 && split.Length != newLength)
                     {
-                        Console.WriteLine($"Split {name} has conflicting length and endpoint");
+                        Debug.LogError($"Split {name} has conflicting length and endpoint");
                     }
-                    split.end = ParseInt(value);
+                    split.End = ParseInt(value);
                     break;
                 case "generate":
                     split.functionDefinition.GenerateC = value.Trim() == "true";
@@ -243,7 +267,7 @@ public static class Splitter
         };
     }
 
-    private static int ParseInt(string data)
+    public static int ParseInt(string data)
     {
         if (data.StartsWith("0x"))
         {
@@ -256,16 +280,28 @@ public static class Splitter
 
         return int.Parse(data);
     }
+}
 
-    public static Split[] CreateXFFSplits(string xffPath)
+public class SplitCreator(IExecutableInfo executable)
+{
+    private IExecutableInfo Executable { get; set; } = executable;
+    private ISectionHeader[] SectionHeaders { get; set; } = [];
+
+    public Split[] CreateXFFSplits(XFF xff)
     {
-        XFF xff = new XFF(xffPath);
+        // Save the executable info
+        SectionHeaders = new ISectionHeader[xff.SectionHeaders.Length];
+        for (int i = 0; i < SectionHeaders.Length; i++)
+        {
+            SectionHeaders[i] = xff.SectionHeaders[i];
+        }
+        Executable = xff;
 
         List<Split> splits = new List<Split>();
         for (int i = 0; i < xff.SectionHeaders.Length; i++)
         {
-            SectionHeader header = xff.SectionHeaders[i];
-            if (header.Type == ELF.SectionHeader.SH_Type.NULL || header.Type == ELF.SectionHeader.SH_Type.NoBits)
+            XFF.SectionHeader header = xff.SectionHeaders[i];
+            if (header.Type == ISectionHeader.SH_Type.NULL || header.Type == ISectionHeader.SH_Type.NoBits)
                 continue;
 
             splits.AddRange(SplitSection(xff.Symbols, header.Length, i));
@@ -274,12 +310,13 @@ public static class Splitter
         return splits.ToArray();
     }
 
-    private static bool TryGetRelativeSymbolAddressInELF(ELF elf, int memoryLocation, out int relativeAddress, out int section)
+    private bool TryGetRelativeSymbolAddress(int memoryLocation, out int relativeAddress, out int section)
     {
-        for (int i = 0; i < elf.SectionHeaders.Length; i++)
+        for (int i = 0; i < SectionHeaders.Length; i++)
         {
-            var header = elf.SectionHeaders[i];
-            if (memoryLocation >= header.MemoryAddress && memoryLocation <= header.MemoryAddress + header.Size)
+            var header = SectionHeaders[i];
+
+            if (memoryLocation >= header.MemoryAddress && memoryLocation <= header.MemoryAddress + header.Length)
             {
                 section = i;
                 relativeAddress = memoryLocation - header.MemoryAddress;
@@ -289,13 +326,21 @@ public static class Splitter
 
         relativeAddress = 0;
         section = -1;
+        Debug.LogError($"Failed to create split for address {memoryLocation:X}");
         return false;
     }
 
-    public static Split[] CreateELFSplits(XFF[] xffs, ELF elf)
+    public Split[] CreateELFSplits(XFF[] xffs, ELF elf)
     {
+        // Load elf info
+        SectionHeaders = new ISectionHeader[elf.SectionHeaders.Length];
+        for (int i = 0; i < SectionHeaders.Length; i++)
+        {
+            SectionHeaders[i] = elf.SectionHeaders[i];   
+        }
+
         // Create main elf splits
-        List<Symbol> elfSymbols = new List<Symbol>();
+        List<Symbol> symbols = new List<Symbol>();
         for (int i = 0; i < xffs.Length; i++)
         {
             XFF xff = xffs[i];
@@ -310,30 +355,30 @@ public static class Splitter
 
                 // Relocate to the elf's section and offset
                 // Or be lazy and just manually set it
-                if (TryGetRelativeSymbolAddressInELF(elf, fileLocation, out int relativeAddress, out int section))
+                if (TryGetRelativeSymbolAddress(fileLocation, out int relativeAddress, out int section))
                 {
                     symbol.offsetAddress = relativeAddress;
                     symbol.section = (ushort)section;
-                    elfSymbols.Add(symbol);
+                    symbols.Add(symbol);
                 }
                 else
                 {
-                    Console.WriteLine("Failed to get section and offset in main elf");
+                    Debug.LogError("Failed to get section and offset in main elf");
                 }
             }
         }
 
-        List<Split> splits = new List<Split>(elfSymbols.Count);
+        List<Split> splits = new List<Split>(symbols.Count);
         for (int i = 0; i < elf.SectionHeaders.Length; i++)
         {
             var header = elf.SectionHeaders[i];
-            splits.AddRange(SplitSection(elfSymbols.ToArray(), header.Size, i));
+            splits.AddRange(SplitSection(symbols.ToArray(), header.Length, i));
         }
 
         return splits.ToArray();
     }
 
-    private static Split[] SplitSection(Symbol[] symbols, int sectionLength, int sectionIndex)
+    private Split[] SplitSection(Symbol[] symbols, int sectionLength, int sectionIndex)
     {
         // Order all symbols by their offsets
         var orderedSymbols = (from x in symbols orderby x.offsetAddress where x.section == sectionIndex select x).ToArray();
@@ -344,7 +389,6 @@ public static class Splitter
         for (int i = 0; i < orderedSymbols.Length; i++)
         {
             Symbol symbol = orderedSymbols[i];
-            //9302
 
             if (symbol.flags == Symbol.Flags.Section)
                 continue;
@@ -354,7 +398,7 @@ public static class Splitter
 
             if (gapSize > 0x4)
             {
-                Console.WriteLine("Found gap in section sizeof " + gapSize);
+                Debug.LogWarn("Found gap in section sizeof " + gapSize);
                 AddSplit(splits, lastAddress, gapSize, sectionIndex);
             }
 
@@ -368,35 +412,39 @@ public static class Splitter
         return splits.ToArray();
     }
 
-    private static void AddSplit(List<Split> splits, int startAddress, int length, int sectionIndex, string name = "")
+    private void AddSplit(List<Split> splits, int startAddress, int length, int sectionIndex, string name = "")
     {
         if (name == "")
             name = $"Undefined_Gap_0x{startAddress:X}-0x{startAddress + length:X}";
 
+        // Try to make split a function
+        if (sectionIndex == Executable.TextSectionIndex)
+            name = $"undefined {name}()";
+
+        // Create and add split
         Split split = new Split
         {
             Name = name,
-            start = startAddress,
-            // length = length,
-            end = startAddress + length,
-            section = sectionIndex,
+            StartAddress = startAddress,
+            End = startAddress + length,
+            Section = sectionIndex,
         };
         splits.Add(split);
     }
 
-    public static Split[] UpdateSplits(Split[] currentSplits, ELF elf)
+    public Split[] UpdateSplits(Split[] currentSplits, ELF elf)
     {
         List<Split> newSplits = new List<Split>();
         for (int i = 0; i < currentSplits.Length; i++)
         {
             Split split = currentSplits[i];
-            if (split.section == 1 && split.length <= 4)
+            if (split.Section == 1 && split.Length <= 4)
             {
-                Console.WriteLine($"Trashing split {split.Name} {(from x in currentSplits where x.Name != split.Name where x.start == split.start select x).Count()}");
+                Debug.LogWarn($"Trashing split {split.Name} {(from x in currentSplits where x.Name != split.Name where x.StartAddress == split.StartAddress select x).Count()}");
                 continue;
                 // I doubt theres a function thats only 1 instruction long
-                uint instData = BitConverter.ToUInt32(elf.SectionHeaders[1].Data.AsSpan(split.start, 4));
-                Instruction instr = Dissasembler.GetInstruction(instData);
+                uint instData = BitConverter.ToUInt32(elf.SectionHeaders[1].Data.AsSpan(split.StartAddress, 4));
+                Instruction instr = Dissassembler.GetInstruction(instData);
                 if (instr.Name != "addiu")
                     continue;
 
@@ -412,8 +460,8 @@ public static class Splitter
                 int instructionLength = 0;
                 while (true)
                 {
-                    instData = BitConverter.ToUInt32(elf.SectionHeaders[1].Data.AsSpan(split.start + instructionLength, 4));
-                    instr = Dissasembler.GetInstruction(instData);
+                    instData = BitConverter.ToUInt32(elf.SectionHeaders[1].Data.AsSpan(split.StartAddress + instructionLength, 4));
+                    instr = Dissassembler.GetInstruction(instData);
                     instructionLength += 4;
 
                     if (instr.Name != "addiu")
@@ -425,7 +473,7 @@ public static class Splitter
 
                     if (imm.Immediate > 0)
                     {
-                        split.end = instructionLength + split.start;
+                        split.End = instructionLength + split.StartAddress;
                         break;
                     }
                 }
@@ -435,38 +483,38 @@ public static class Splitter
             if (!split.Name.ToLower().Contains("gap"))
             {
                 Split newSplit = split;
-                if ((newSplit.length == 0 || newSplit.end == 0) && newSplit.type == "int")
-                    newSplit.end = newSplit.start + 4;
+                if ((newSplit.Length == 0 || newSplit.End == 0) && newSplit.Type == "int")
+                    newSplit.End = newSplit.StartAddress + 4;
 
                 newSplits.Add(newSplit);
                 continue;
             }
 
-            for (int j = 0; j < split.length / 4; j++)
+            for (int j = 0; j < split.Length / 4; j++)
             {
                 newSplits.Add(new Split
                 {
-                    section = split.section,
-                    start = split.start + j * 4,
-                    end = split.start + j * 4 + 4,
-                    type = "int",
+                    Section = split.Section,
+                    StartAddress = split.StartAddress + j * 4,
+                    End = split.StartAddress + j * 4 + 4,
+                    Type = "int",
                     // length = 0x4,
-                    Name = $"Section_0x{split.section}_field_0x{split.start + j * 0x4:X}"
+                    Name = $"Section_0x{split.Section}_field_0x{split.StartAddress + j * 0x4:X}"
                 });
             }
 
 
             // Leftover bytes
-            for (int j = 0; j < split.length % 4; j++)
+            for (int j = 0; j < split.Length % 4; j++)
             {
                 newSplits.Add(new Split
                 {
-                    section = split.section,
-                    start = split.start + split.length / 4 * 4 + j,
-                    end = split.start + split.length / 4 * 4 + j + 1,
+                    Section = split.Section,
+                    StartAddress = split.StartAddress + split.Length / 4 * 4 + j,
+                    End = split.StartAddress + split.Length / 4 * 4 + j + 1,
                     // length = 0x4,
-                    type = "char",
-                    Name = $"Section_0x{split.section}_field_0x{split.start + split.length / 4 * 4 + j:X}"
+                    Type = "char",
+                    Name = $"Section_0x{split.Section}_field_0x{split.StartAddress + split.Length / 4 * 4 + j:X}"
                 });
             }
         }
@@ -475,7 +523,7 @@ public static class Splitter
         return newSplits.ToArray();
     }
 
-    public static Split[] MergeSplits(Split[] a, Split[] b)
+    public Split[] MergeSplits(Split[] a, Split[] b)
     {
         List<Split> newSplits = new List<Split>();
 
@@ -483,7 +531,7 @@ public static class Splitter
         // Trash all bad splits
         for (int i = 0; i < a.Length; i++)
         {
-            if (a[i].length <= 4)
+            if (a[i].Length <= 4)
                 continue;
 
             newSplits.Add(a[i]);
@@ -493,13 +541,13 @@ public static class Splitter
         for (int i = 0; i < b.Length; i++)
         {
             bool found = false;
-            if (b[i].length <= 4)
+            if (b[i].Length <= 4)
                 continue;
 
 
             for (int j = 0; j < newSplits.Count; j++)
             {
-                if (newSplits[j].start == b[i].start)
+                if (newSplits[j].StartAddress == b[i].StartAddress)
                 {
                     found = true;
                     break;
@@ -512,28 +560,28 @@ public static class Splitter
         }
 
         // Find all gaps in new splits
-        var ordered = (from x in newSplits orderby x.start ascending select x).ToArray();
+        var ordered = (from x in newSplits orderby x.StartAddress ascending select x).ToArray();
 
         int lastAddress = 0;
         for (int i = 0; i < ordered.Length; i++)
         {
-            if (ordered[i].section != 1)
+            if (ordered[i].Section != 1)
                 continue;
 
-            int gap = ordered[i].start - lastAddress;
+            int gap = ordered[i].StartAddress - lastAddress;
 
             if (gap > 0x8)
             {
-                Console.WriteLine($"Found gap size of 0x{gap:X} after 0x{lastAddress:X}");
+                Debug.LogWarn($"Found gap size of 0x{gap:X} after 0x{lastAddress:X}");
             }
 
-            lastAddress = ordered[i].end;
+            lastAddress = ordered[i].End;
         }
 
         return newSplits.ToArray();
     }
 
-    public static Split[] FromGhidra(string path)
+    public Split[] FromGhidra(string path)
     {
         string[] lines = File.ReadAllLines(path);
         Split[] splits = new Split[lines.Length];
@@ -542,15 +590,15 @@ public static class Splitter
         {
             string[] segs = lines[i].Split('@');
             string name = segs[0].Trim();
-            int offset = ParseInt(segs[1].Trim()) - 0x100000;
+            int offset = Splitter.ParseInt(segs[1].Trim()) - 0x100000;
             int length = int.Parse(segs[2].Trim());
 
             splits[i] = new Split
             {
                 Name = name,
-                start = offset,
-                end = offset + length,
-                section = 0x1,
+                StartAddress = offset,
+                End = offset + length,
+                Section = 0x1,
             };
         }
 

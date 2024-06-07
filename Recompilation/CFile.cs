@@ -2,39 +2,38 @@ using System.Text;
 
 public struct CFile
 {
-    public CFile(Split split, Instruction[] instructions, List<Tuple<int, string>> relocations)
+    public CFile(Function function)
     {
-        this.split = split;
-        Relocations = relocations;
+        baseFunction = function;
+        split = function.split;
+        Relocations = function.Relocations;
 
-        // Relocations are stored as the index of the instruction and their name
-        // When flipping a jump instruction and the _instruction
-        // The index points to the wrong instruction and the function relocation fails
-        // This function fixes that by incrementing the index by 1
-        void FixRelocation(List<Tuple<int, string>> relocations, int index)
-        {
-            for (int i = 0; i < relocations.Count; i++)
-            {
-                if (relocations[i].Item1 == index)
-                {
-                    relocations[i] = new Tuple<int, string>(index + 1, relocations[i].Item2);
-                }
-            }
-        }
-
-        void FlipBranch(ref int i, List<Tuple<int, string>> Relocations, Instruction[] Instructions, Instruction[] instructions)
+        void FlipBranch(ref int i, IndexedRelocation[] Relocations, Instruction[] Instructions, Instruction[] instructions)
         {
             // Flip jump instructions
             Instructions[i] = instructions[i + 1];
             Instructions[i + 1] = instructions[i];
 
-            FixRelocation(Relocations, i);
+            // Flip any required relocations
+            for (int r = 0; r < Relocations.Length; r++)
+            {
+                if (Relocations[r].instructionIndex == i + 1)
+                {
+                    Relocations[r].instructionIndex--;
+                    continue;
+                }
+                if (Relocations[r].instructionIndex == i)
+                {
+                    Relocations[r].instructionIndex++;
+                    continue;
+                }
+            }
             i++;
         }
 
         // Go through each instruction and flip jump functions and the instruction they run before jumping
         // Also mips is wack
-
+        Instruction[] instructions = function.Instructions;
         Instructions = new Instruction[instructions.Length];
         Instructions[instructions.Length - 1] = instructions[instructions.Length - 1]; // Last isntruction must be the same
 
@@ -77,7 +76,8 @@ public struct CFile
 
     public Split split { get; set; }
     public Instruction[] Instructions { get; set; }
-    public List<Tuple<int, string>> Relocations { get; set; }
+    public IndexedRelocation[] Relocations { get; set; }
+    private Function baseFunction;
 
     public void Write(string outputPath, Dictionary<string, FunctionDefinition> functions)
     {
@@ -91,11 +91,19 @@ public struct CFile
             Instruction instruction = Instructions[i];
             if (instruction is ImmediateInstruction imm)
             {
-                if (imm.format == ImmediateInstruction.Format.BranchRs || imm.format == ImmediateInstruction.Format.BranchRsRt)
+                if (imm.format != ImmediateInstruction.Format.BranchRs && imm.format != ImmediateInstruction.Format.BranchRsRt)
+                    continue;
+
+                int branchIndex = imm.Immediate + i + 0;
+                branches[i] = branchIndex;
+
+                if (branchIndex < hasBranch.Length)
                 {
-                    int branchIndex = imm.Immediate + i + 0;
-                    branches[i] = branchIndex;
                     hasBranch[branchIndex] = true;
+                }
+                else
+                {
+                    Debug.LogError($"Function at {outputPath} has invalid branch of index {branchIndex} and only {hasBranch.Length} instructions.");
                 }
             }
 
@@ -132,11 +140,11 @@ public struct CFile
 
             // Try adding the goto statement
             string relocationName = "norelocation";
-            for (int j = 0; j < Relocations.Count; j++)
+            for (int j = 0; j < Relocations.Length; j++)
             {
-                if (Relocations[j].Item1 == i)
+                if (Relocations[j].instructionIndex == i)
                 {
-                    relocationName = Relocations[j].Item2;
+                    relocationName = baseFunction.Splits[Relocations[j].relocation.SplitIndex].Name;
                     break;
                 }
             }
@@ -206,7 +214,7 @@ public struct CFile
 
             if (relocationName != "norelocation")
             {
-                Console.WriteLine($"failed to find function {relocationName}");
+                Debug.LogWarn($"Decompiler failed to find function {relocationName} with {functions.Count} function definitions");
             }
 
             // return instruction.ToCMacro();

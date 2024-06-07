@@ -61,7 +61,7 @@ static class MegaXFFer
             // Go through each header
             for (int s = 0; s < xffs[i].SectionHeaders.Length; s++)
             {
-                SectionHeader header = xffs[i].SectionHeaders[s];
+                XFF.SectionHeader header = xffs[i].SectionHeaders[s];
                 string sectionName = header.Name;
 
                 // Append the data to the sectionToData thing
@@ -125,7 +125,7 @@ static class MegaXFFer
         ELF.SectionHeader elfSection = elfSectionsByMemoryAddress[currentElfSection];
 
         // Skip sections without data
-        while (elfSection.Size <= 0 && currentElfSection < elfSectionsByMemoryAddress.Length - 1)
+        while (elfSection.Length <= 0 && currentElfSection < elfSectionsByMemoryAddress.Length - 1)
         {
             currentElfSection++;
             elfSection = elfSectionsByMemoryAddress[currentElfSection];
@@ -140,8 +140,8 @@ static class MegaXFFer
             // I love when my code doesnt work
             Console.WriteLine($"Writing padding until elf section");
             Console.WriteLine($"\tFile Stream Pos: {bw.BaseStream.Position:X}");
-            Console.WriteLine($"\tSection Size:    {elfSection.Size:X}");
-            Console.WriteLine($"\tCalculated End:  {elfSection.Size + bw.BaseStream.Position + elfPadding:X}");
+            Console.WriteLine($"\tSection Size:    {elfSection.Length:X}");
+            Console.WriteLine($"\tCalculated End:  {elfSection.Length + bw.BaseStream.Position + elfPadding:X}");
             Console.WriteLine($"\tMemory Address:  {elfSection.MemoryAddress:X}");
             Console.WriteLine($"\tSection:         {elfSection.Name}");
             Console.WriteLine($"\tPadding Amount:  {elfPadding:X}");
@@ -150,9 +150,9 @@ static class MegaXFFer
             sectionStarts.Add($"{elfSection.Name}-main", bw.BaseStream.Position);
 
             // Write the elf section
-            if (elfSection.Type == ELF.SectionHeader.SH_Type.NoBits)
+            if (elfSection.Type == ISectionHeader.SH_Type.NoBits)
             {
-                bw.Write(new byte[elfSection.Size]);
+                bw.Write(new byte[elfSection.Length]);
             }
             else
             {
@@ -265,7 +265,7 @@ static class MegaXFFer
                 Relocation relocation = header.relocations[relocationIndex];
 
                 // Calculate the new file location
-                Symbol xffSymbol = currentXff.Symbols[relocation.SymbolIndex];
+                Symbol xffSymbol = currentXff.Symbols[relocation.SplitIndex];
 
 
                 // skip null symbols
@@ -343,7 +343,7 @@ static class MegaXFFer
         if (symbolReference.symbol.section == 0xfff1) // CSPX_150.97 function
         {
             int[] symbolLocations = xffs[currentXffIndex].SymbolLocations;
-            long staticAddress = symbolLocations[relocation.SymbolIndex];
+            long staticAddress = symbolLocations[relocation.SplitIndex];
             return staticAddress;
         }
         else if (symbolReference.symbol.section < 0xff00) // Everything less than 0xff00 is any other section inside the xff

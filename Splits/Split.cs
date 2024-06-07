@@ -1,17 +1,18 @@
 public struct Split
 {
-    public string Name;
-    public int start;
-    public int length => end - start;
-    public int end;
-    public int section;
-    public string type;
+    public string Name { get; set; }
+    // Relative to the start of the section
+    public int StartAddress { get; set; }
+    public readonly int Length => End - StartAddress;
+    public int End { get; set; }
+    public int Section { get; set; }
+    public string Type { get; set; }
     public FunctionDefinition functionDefinition;
 
     public string GetFunctionDefinition()
     {
         string parameterText = "";
-        
+
         // Check if the function requires the recomp context
         if (functionDefinition.IncludeContext)
         {

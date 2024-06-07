@@ -36,37 +36,6 @@ public struct Symbol
         return sb.ToString();
     }
 }
-
-public struct SectionHeader
-{
-    public string Name { get; set; }
-    public int Padding { get; set; }
-    public int MemoryAddress { get; set; }
-    public int Length { get; set; }
-    public int Alignment { get; set; }
-    public ELF.SectionHeader.SH_Type Type { get; set; }
-    public int Unk1 { get; set; }
-    public int Unk2 { get; set; }
-    public int FileOffset { get; set; }
-
-    public byte[] Data { get; set; }
-
-    public override string ToString()
-    {
-        StringBuilder sb = new StringBuilder();
-        sb.AppendLine($"Name:            {Name}");
-        sb.AppendLine($"\tPadding?:        {Padding:X}");
-        sb.AppendLine($"\tMemory Address:  {MemoryAddress:X}");
-        sb.AppendLine($"\tLength:          {Length:X}");
-        sb.AppendLine($"\tAlignment:       {Alignment:X}");
-        sb.AppendLine($"\tType:            {Type}");
-        sb.AppendLine($"\tUnk1:            {Unk1:X}");
-        sb.AppendLine($"\tUnk2:            {Unk2:X}");
-        sb.AppendLine($"\tFile Offset:     {FileOffset:X}");
-        return sb.ToString();
-    }
-}
-
 public struct Relocation
 {
     public enum RelocationType
@@ -81,7 +50,7 @@ public struct Relocation
     public int offset;
     public int packedSymbolIndex; // First byte is the relocation type, the last 3 bytes are the symbol index 
 
-    public int SymbolIndex => packedSymbolIndex >> 8;
+    public int SplitIndex => packedSymbolIndex >> 8;
     public RelocationType Type => (RelocationType)(packedSymbolIndex & 0xff);
 
     // Stuff I added
@@ -110,10 +79,44 @@ public struct RelocationHeader
     public Relocation[] relocations;
 }
 
-public struct XFF
+public class XFF : Executable<XFF.SectionHeader>
 {
+    public struct SectionHeader : ISectionHeader
+    {
+        public string Name { get; set; }
+        public int Padding { get; set; }
+        public int MemoryAddress { get; set; }
+        public int Length { get; set; }
+        public int Alignment { get; set; }
+        public ISectionHeader.SH_Type Type { get; set; }
+        public int Unk1 { get; set; }
+        public int Unk2 { get; set; }
+        public int FileOffset { get; set; }
+
+        public byte[] Data { get; set; }
+        public int SectionIndex { get; set; }
+
+        public override string ToString()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine($"Name:            {Name}");
+            sb.AppendLine($"\tPadding?:        {Padding:X}");
+            sb.AppendLine($"\tMemory Address:  {MemoryAddress:X}");
+            sb.AppendLine($"\tLength:          {Length:X}");
+            sb.AppendLine($"\tAlignment:       {Alignment:X}");
+            sb.AppendLine($"\tType:            {Type}");
+            sb.AppendLine($"\tUnk1:            {Unk1:X}");
+            sb.AppendLine($"\tUnk2:            {Unk2:X}");
+            sb.AppendLine($"\tFile Offset:     {FileOffset:X}");
+            return sb.ToString();
+        }
+    }
+
     public XFF(string path)
     {
+        FileInfo info = new FileInfo(path);
+        Name = info.Name.Substring(0, info.Name.Length - info.Extension.Length); // Removes the .XFF extension from the name
+
         byte[] data = File.ReadAllBytes(path);
         using (MemoryStream ms = new MemoryStream(data))
         {
@@ -125,9 +128,7 @@ public struct XFF
     {
         Read(stream);
     }
-
     public Symbol[] Symbols { get; set; }
-    public SectionHeader[] SectionHeaders { get; set; }
     public RelocationHeader[] RelocationHeaders { get; set; }
     public int[] SymbolLocations { get; set; }
     public byte[] Data { get; private set; }
@@ -268,26 +269,30 @@ public struct XFF
     SectionHeader[] ReadSections(BinaryReader br, int sectionHeadersPtr, int sectionNameOffsetsPtr, int sectionNameTablePtr)
     {
         SectionHeader[] sections = new SectionHeader[sectionCount];
-        string[] sectionNames = GetSectionNames(br, sectionNameOffsetsPtr, sectionNameTablePtr);
+        GetSectionNames(br, sectionNameOffsetsPtr, sectionNameTablePtr);
 
         br.BaseStream.Position = sectionHeadersPtr;
         for (int i = 0; i < sectionCount; i++)
         {
             sections[i] = new SectionHeader
             {
-                Name = sectionNames[i],
+                Name = SectionNames[i],
+                Padding = br.ReadInt32(),
+                MemoryAddress = br.ReadInt32(),
+                Length = br.ReadInt32(),
+                Alignment = br.ReadInt32(),
+                Type = (ISectionHeader.SH_Type)br.ReadInt32(),
+                Unk1 = br.ReadInt32(),
+                Unk2 = br.ReadInt32(),
+                FileOffset = br.ReadInt32(),
+                SectionIndex = i
             };
-            sections[i].Padding = br.ReadInt32();
-            sections[i].MemoryAddress = br.ReadInt32();
-            sections[i].Length = br.ReadInt32();
-            sections[i].Alignment = br.ReadInt32();
-            sections[i].Type = (ELF.SectionHeader.SH_Type)br.ReadInt32();
-            sections[i].Unk1 = br.ReadInt32();
-            sections[i].Unk2 = br.ReadInt32();
-            sections[i].FileOffset = br.ReadInt32();
 
             if (sections[i].Name == ".bss")
                 bssSectionIndex = i;
+
+            if (sections[i].Name == ".text")
+                TextSectionIndex = i;
         }
 
         // Read all the dat
@@ -322,7 +327,6 @@ public struct XFF
         return relocations.ToArray();
     }
 
-    int externalSymbols;
     Symbol[] ReadSymbols(BinaryReader br, int offset, int symbolCount, int[] symbolLocations, Dictionary<int, string> names)
     {
         br.BaseStream.Position = offset;
@@ -391,181 +395,7 @@ public struct XFF
 
         return relocationHeaders;
     }
-
-    public void PatchXFF(Stream outputStream, string mainELFPath) // Applys relocations
-    {
-        // ELF main;
-        // using (FileStream fs = new FileStream(mainELFPath, FileMode.Open))
-        //     main = new ELF(fs);
-        // bw.BaseStream.Position = 0x300010;
-        // bw.Write(main.TextSection.Data);
-
-        BinaryWriter bw = new BinaryWriter(outputStream);
-        BinaryReader br = new BinaryReader(outputStream);
-
-        // Create the .bss section at the end of the file
-        // Get the bss section
-        int bssSectionIndex = -1;
-        Console.WriteLine(SectionHeaders == null);
-        for (int i = 0; i < SectionHeaders.Length; i++)
-        {
-            if (SectionHeaders[i].Name == ".bss")
-            {
-                bssSectionIndex = i;
-                SectionHeaders[i].FileOffset = 0x200000;
-                Console.WriteLine($"Found bss section at {SectionHeaders[i].FileOffset:X}");
-                break;
-            }
-        }
-
-        for (int i = 0; i < Symbols.Length; i++)
-        {
-            Symbol symbol = Symbols[i];
-            if (symbol.flags == Symbol.Flags.Section && symbol.section == bssSectionIndex)
-            {
-                symbol.offsetAddress = 0x200000;
-            }
-        }
-
-        if (bssSectionIndex == -1)
-        {
-            Console.WriteLine("No bss section found");
-            return;
-        }
-
-        for (int i = 0; i < RelocationHeaders.Length; i++)
-        {
-            ApplyRelocation(bw, br, RelocationHeaders[i]);
-        }
-
-    }
-
     public Dictionary<int, Symbol> ExternalFunctionReferences;
-    void ApplyRelocation(BinaryWriter bw, BinaryReader br, RelocationHeader header)
-    {
-        for (int i = 0; i < header.relocations.Length; i++)
-        {
-            bw.BaseStream.Position = header.relocations[i].offset + SectionHeaders[header.sectionIndex].FileOffset;
-
-            int baseInstruction = br.ReadInt32();
-            uint baseUpper = (uint)baseInstruction & 0xffff0000;
-            uint baseLower = (uint)baseInstruction & 0xffff;
-            br.BaseStream.Position -= 4;
-
-            int packedData = header.relocations[i].packedSymbolIndex;
-            int relocationType = packedData & 0xff;
-            int symbolIndex = packedData >> 8;
-            Symbol symbol = Symbols[symbolIndex];
-
-
-            int symbolFileAddress = 0;
-
-            if (symbol.section == 0xfff1) // CSPX_150.97 function
-            {
-                symbolFileAddress = SymbolLocations[symbolIndex];
-                // We're just going to write a nop then add a comment to what it was meant to jump to
-                // Code starts at 0x100010
-                // We want to remap that to 0x300010 
-
-                bw.Write((uint)symbolFileAddress + 0x300000);
-            }
-            else if (symbol.section < 0xff00) // Local function
-                symbolFileAddress = symbol.offsetAddress + SectionHeaders[symbol.section].FileOffset;
-            else if (symbol.section == 0) // Error
-                Console.WriteLine("Fuck");
-
-            if (symbolFileAddress == 0)
-            {
-                Console.WriteLine("Dont know where this symbol is for relocation");
-                Console.WriteLine($"\tName:    {symbol.name}");
-                Console.WriteLine($"\tSection: {symbol.section}");
-                Console.WriteLine($"\tOffset:  {symbol.offsetAddress}");
-                return;
-            }
-
-            switch (relocationType)
-            {
-                default:
-
-                    if (symbol.name == "gcGlobalVar")
-                        break;
-
-                    Console.WriteLine("Unknown relocation type: " + relocationType);
-                    Console.WriteLine($"\tSymbol Name:      {symbol.name}");
-                    Console.WriteLine($"\tSymbol Section:   {SectionHeaders[symbol.section].Name}");
-                    break;
-
-                case 0:
-                    break;
-
-                case 2: // I think
-                    bw.Write(symbolFileAddress + baseInstruction);
-                    break;
-
-                case 4:
-                    bw.Write((int)((symbolFileAddress >> 2 & 0x3ffffff) + baseInstruction));
-                    break;
-
-                case 5:  // upper half, Probably implemented wrong
-                         // bw.Write((int)((symbolFileAddress >> 16) + baseInstruction));
-                    int nextIndex = i + 1;
-                    int nextType = header.relocations[nextIndex].packedSymbolIndex & 0xff;
-                    while (nextType == 0x5)
-                    {
-                        if (nextIndex >= header.relocations.Length)
-                            break;
-
-                        nextIndex++;
-                        nextType = header.relocations[nextIndex].packedSymbolIndex & 0xff;
-                    }
-                    if ((header.relocations[nextIndex].packedSymbolIndex & 0xff) == 0x6)
-                    {
-                        // *realocationAddress =
-                        //     instructionBase & 0xffff0000 |
-                        //     ((int)((int)_symbolLocation + (int)sVar1 + instructionBase * 0x10000) >> 0xf) + 1 >> 1 &
-                        //     0xffffU;
-                        Relocation relocation = header.relocations[nextIndex];
-                        uint targetAddress = (uint)(baseLower + (uint)symbolFileAddress);
-
-                        if ((targetAddress & 0xffffu) > short.MaxValue)
-                            targetAddress += 0x10000;
-
-                        int targetWrite = (int)(baseUpper | (targetAddress >> 0x10 & 0xffff));
-                        bw.Write(targetWrite);
-                        // bw.Write(0xffffffff);
-
-                    }
-                    else
-                    {
-                        Console.WriteLine("Cant find low16 for hi16");
-                        // LoaderSysPrintf("ld:\t\x1b[31mWarning! Can\'t find low16 for hi16(relid:%d).\x1b[m\n",
-                        //                 relocationIndexCpy,virtmemCpy,6,(long)(int)relocations,(long)(int)symbols,
-                        //                 relocationIndexCpy,virtmemCpy);
-                    }
-
-
-                    break;
-
-                case 6:  // Lower half
-                    // bw.Write((int)((symbolFileAddress & 0xffff) + baseInstruction));
-                    uint lowTargetAddress = ((uint)symbolFileAddress + baseLower);
-                    bw.Write((int)(baseUpper | (lowTargetAddress & 0xffff)));
-                    break;
-            }
-
-        }
-    }
-
-    public void WriteSCPSFunctionReferencesForGhidra(Stream stream, int fileOffset = 0)
-    {
-        BinaryWriter bw = new BinaryWriter(stream);
-
-        foreach (var location in ExternalFunctionReferences.Keys)
-        {
-            Symbol symbol = ExternalFunctionReferences[location];
-            bw.Write(Encoding.UTF8.GetBytes($"SCPS-{symbol.name};0x{location + fileOffset:X}\n"));
-        }
-    }
 
     string ReadString(BinaryReader br)
     {
@@ -581,7 +411,7 @@ public struct XFF
         return sb.ToString();
     }
 
-    string[] GetSectionNames(BinaryReader br, int sectionNameOffsetsPtr, int sectionStringsOffset)
+    void GetSectionNames(BinaryReader br, int sectionNameOffsetsPtr, int sectionStringsOffset)
     {
         br.BaseStream.Position = sectionNameOffsetsPtr;
         int[] nameOffsets = new int[sectionCount];
@@ -590,13 +420,21 @@ public struct XFF
             nameOffsets[i] = br.ReadInt32();
         }
 
-        string[] names = new string[sectionCount];
+        SectionNames = new string[sectionCount];
         for (int i = 0; i < sectionCount; i++)
         {
             br.BaseStream.Position = sectionStringsOffset + nameOffsets[i];
-            names[i] = ReadString(br);
+            SectionNames[i] = ReadString(br);
         }
-
-        return names;
     }
+
+    public static bool IsAnXFF(string path)
+    {
+        using (FileStream fs = new FileStream(path, FileMode.Open))
+        {
+            BinaryReader br = new BinaryReader(fs);
+            return br.ReadInt32() == 0x32666678;
+        }
+    }
+
 }

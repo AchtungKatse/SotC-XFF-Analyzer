@@ -84,6 +84,14 @@ public class Register
             return register.ToString();
         else return ((int)register).ToString();
     }
+
+    public override bool Equals(object? obj)
+    {
+        if (obj is Register r2)
+            return r2.register.Equals(register);
+
+        return false;
+    }
 }
 
 public abstract class Instruction
@@ -106,7 +114,7 @@ public abstract class Instruction
     {
         switch (opcode)
         {
-            default: 
+            default:
                 Console.WriteLine($"Unknown opcode 0x{opcode:X} / {opcode >> 3 & 0x7:b} {opcode & 7:b}b");
                 return $"UNKNOWN-OPCODE '0x{opcode:X}'";
             case 0x0: return "WRONG REGISTER TYPE";

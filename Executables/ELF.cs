@@ -3,8 +3,14 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
-public struct ELF
+public class ELF : Executable<ELF.SectionHeader>
 {
+    public ELF() { }
+
+    public Header header;
+    public ProgramHeader[] ProgramHeaders;
+
+
     public struct Header
     {
         public enum EI_Class { Invalid = 0, BIT_32 = 1, BIT_64 = 2 };
@@ -30,6 +36,7 @@ public struct ELF
         public ushort SectionHeaderSize { get; set; }
         public ushort SectionHeadersCount { get; set; }
         public ushort SectionStringTableIndex { get; set; }
+
 
         public void Write(Stream stream)
         {
@@ -69,14 +76,14 @@ public struct ELF
             // Identification
             int magic = br.ReadInt32();
             if (magic != Magic)
-                Console.WriteLine($"INVALID ELF MAGIC OF 0x{magic:X}");
+                Debug.LogError($"INVALID ELF MAGIC OF 0x{magic:X}");
 
             Class = (EI_Class)br.ReadByte();
             endianness = (Endianness)br.ReadByte();
             byte version = br.ReadByte();
 
             if (version != 1)
-                Console.WriteLine($"INVALID ELF VERSION OF 0x{version:X}");
+                Debug.LogError($"INVALID ELF VERSION OF 0x{version:X}");
 
             stream.Position += 0x9; // Skip padding
 
@@ -115,36 +122,37 @@ public struct ELF
         }
     }
 
-    public struct SectionHeader
+    public struct SectionHeader : ISectionHeader
     {
-        public enum SH_Type { NULL, PROGBITS, SymbolTable, StringTable, RelocationAddend, Hash, Dynamic, Note, NoBits, Relocatable, SHLIB, DynamicSymbol };
         public enum SH_Flags { Write = 0x1, Allocate = 0x2, Execute = 0x4 };
 
-        public string Name;
+        public string Name { get; set; }
         public int NameOffset { get; set; }
-        public SH_Type Type { get; set; }
+        public ISectionHeader.SH_Type Type { get; set; }
         public SH_Flags Flags { get; set; }
         public int MemoryAddress { get; set; }
         public int FileOffset { get; set; }
-        public int Size { get; set; }
-        public SH_Type Link { get; set; }
-        public SH_Type Info { get; set; }
+        public int Length { get; set; }
+        public ISectionHeader.SH_Type Link { get; set; }
+        public ISectionHeader.SH_Type Info { get; set; }
         public int Alignment { get; set; }
         public int EntrySize { get; set; }
 
+        // Metadata
+        public int SectionIndex { get; set; }
         public byte[] Data { get; set; }
 
         public SectionHeader(Stream stream)
         {
             BinaryReader br = new BinaryReader(stream);
             NameOffset = br.ReadInt32();
-            Type = (SH_Type)br.ReadInt32();
+            Type = (ISectionHeader.SH_Type)br.ReadInt32();
             Flags = (SH_Flags)br.ReadInt32();
             MemoryAddress = br.ReadInt32();
             FileOffset = br.ReadInt32();
-            Size = br.ReadInt32();
-            Link = (SH_Type)br.ReadInt32();
-            Info = (SH_Type)br.ReadInt32();
+            Length = br.ReadInt32();
+            Link = (ISectionHeader.SH_Type)br.ReadInt32();
+            Info = (ISectionHeader.SH_Type)br.ReadInt32();
             Alignment = br.ReadInt32();
             EntrySize = br.ReadInt32();
         }
@@ -157,7 +165,7 @@ public struct ELF
             bw.Write((int)Flags);
             bw.Write(MemoryAddress);
             bw.Write(FileOffset);
-            bw.Write(Size);
+            bw.Write(Length);
             bw.Write((int)Link);
             bw.Write((int)Info);
             bw.Write(Alignment);
@@ -174,7 +182,7 @@ public struct ELF
             sb.AppendLine($"\tFlags:           {Flags}");
             sb.AppendLine($"\tMemory Address:  {MemoryAddress:X}");
             sb.AppendLine($"\tFile Offset:     {FileOffset:X}");
-            sb.AppendLine($"\tSize:            {Size:X}");
+            sb.AppendLine($"\tSize:            {Length:X}");
             sb.AppendLine($"\tLink:            {Link}");
             sb.AppendLine($"\tInfo:            {Info}");
             sb.AppendLine($"\tAlignment:       {Alignment:X}");
@@ -257,12 +265,16 @@ public struct ELF
     private void ReadSectionHeaders(Stream stream)
     {
         SectionHeaders = new SectionHeader[header.SectionHeadersCount];
+        SectionNames = new string[header.SectionHeadersCount];
         stream.Position = header.SectionHeaderOffset; // This shouldnt change
 
         // Read all headers
         for (int i = 0; i < SectionHeaders.Length; i++)
         {
-            SectionHeaders[i] = new SectionHeader(stream);
+            SectionHeaders[i] = new SectionHeader(stream)
+            {
+                SectionIndex = i
+            };
         }
 
         // Readback all names
@@ -270,12 +282,14 @@ public struct ELF
         for (int i = 0; i < SectionHeaders.Length; i++)
         {
             stream.Position = SectionHeaders[header.SectionStringTableIndex].FileOffset + SectionHeaders[i].NameOffset;
-            SectionHeaders[i].Name = ReadString(br);
+            string sectionName = ReadString(br);
+            SectionHeaders[i].Name = sectionName;
+            SectionNames[i] = sectionName;
 
             switch (SectionHeaders[i].Name)
             {
                 case ".text":
-                    _textSection = i; 
+                    TextSectionIndex = i;
                     break;
             }
         }
@@ -284,7 +298,7 @@ public struct ELF
         for (int i = 0; i < SectionHeaders.Length; i++)
         {
             stream.Position = SectionHeaders[i].FileOffset;
-            byte[] data = br.ReadBytes(SectionHeaders[i].Size);
+            byte[] data = br.ReadBytes(SectionHeaders[i].Length);
             SectionHeaders[i].Data = data;
         }
 
@@ -325,17 +339,11 @@ public struct ELF
 
     private void Read(Stream stream)
     {
+        Name = "MainElf";
         header = new Header(stream);
         ReadSectionHeaders(stream);
         ReadProgramHeaders(stream);
     }
-
-    public Header header;
-    public SectionHeader[] SectionHeaders;
-    public ProgramHeader[] ProgramHeaders;
-    
-    private int _textSection;
-    public SectionHeader TextSection => SectionHeaders[_textSection];
 
     public void ToFile(string output, int DataStart = 0x1000)
     {

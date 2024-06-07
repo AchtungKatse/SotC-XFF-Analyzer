@@ -20,12 +20,6 @@ public class Cop0Instruction : Instruction
     public override string ToString(string symbol)
     {
         return "Unimplimented";
-        switch (format)
-        {
-            default: return $"{Name}: Unknown format";
-            case Format.Rs: return $"{Name} ${RS}";
-            case Format.RsRt: return $"{Name} ${RS}, ${RT}";
-        }
     }
 
     public override string ToString()
@@ -58,7 +52,7 @@ public class Cop0Instruction : Instruction
     {
         uint type = data >> 11 & 0x1f;
         uint function = data & 0x1f;
-        if (type == 0x18 && (data& 0xfff) != 0)
+        if (type == 0x18 && (data & 0xfff) != 0)
         {
             format = Format.Rt;
             switch (function)

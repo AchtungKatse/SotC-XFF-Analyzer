@@ -1,3 +1,5 @@
+using System.Text;
+
 public class GenericInstruction : Instruction
 {
     public override string ToString()
@@ -14,12 +16,12 @@ public class GenericInstruction : Instruction
     public override string ToCMacro(string branch = "")
     {
         if (Name.ToLower() == "nop")
-        return "NOP()";
+            return "NOP()";
         else return base.ToCMacro();
     }
 }
 
-static class Dissasembler
+static class Dissassembler
 {
     public static Instruction GetInstruction(uint data)
     {
@@ -34,55 +36,59 @@ static class Dissasembler
         int opcode = (int)((data >> 26) & 0x3f);
 
         // Unique opcode overrides
+        Instruction instruction;
         switch (opcode)
         {
-            default: return new ImmediateInstruction(data, opcode);
-            case 0x0: return new RegisterInstruction(data);
-            case 0x1: return new RegimmInstruction(data);
-            case 0x2: return new JumpInstruction(data, opcode);
-            case 0x3: return new JumpInstruction(data,opcode);
-            
-            case 0x10: return new Cop0Instruction(data);
-            case 0x11: return new COP1Instruction(data);
-            case 0x12: return new COP2Instruction(data);
-            case 0x1C: return new MMIInstruction(data);
+            default: instruction = new ImmediateInstruction(data, opcode); break;
+            case 0x0: instruction = new RegisterInstruction(data); break;
+            case 0x1: instruction = new RegimmInstruction(data); break;
+            case 0x2: instruction = new JumpInstruction(data, opcode); break;
+            case 0x3: instruction = new JumpInstruction(data, opcode); break;
 
-            case 0x31: return new WC1Instruction(data, opcode);
-            case 0x39: return new WC1Instruction(data, opcode);
+            case 0x10: instruction = new Cop0Instruction(data); break;
+            case 0x11: instruction = new COP1Instruction(data); break;
+            case 0x12: instruction = new COP2Instruction(data); break;
+            case 0x1C: instruction = new MMIInstruction(data); break;
+
+            case 0x31: instruction = new WC1Instruction(data, opcode); break;
+            case 0x39: instruction = new WC1Instruction(data, opcode); break;
         }
+
+        instruction.Data = data;
+        return instruction;
     }
 
-    private static string GetFPUOpcodeToName(int data)
+    public static void DisassembleFunctions(Function[] functions, string outputDirectory)
     {
-        int opcode = data & 0x3f;
-        int type = (data >> 21) & 0x1f;
-        int bc1Instr = (data >> 16) & 0x1f;
-
-        if (type == 0x10) // S
+        Directory.CreateDirectory($"{outputDirectory}");
+        for (int i = 0; i < functions.Length; i++)
         {
-
-            switch (opcode)
-            {
-                case 0x0: return "ADD.S";
-                case 0x5: return "ABS.S";
-                case 0x18: return "ADDA.S";
-            }
+            File.WriteAllText($"{outputDirectory}/{functions[i].split.Name}.S", functions[i].ToAssembly());
         }
-        else if (type == 0x8) // BC1
-        {
-            switch (bc1Instr)
-            {
-                case 0x0: return "BC1F";
-                case 0x2: return "BC1FL";
-            }
-        }
-        else if (type == 0x4)
-        {
-            return "MTC1";
-        }
-
-        return $"UNKNOWN FPU INSTRUCTION: 0x{opcode:X} TYPE: 0x{type:X}";
     }
 
+    public static void DecompileFunctions(Function[] functions, string outputDirectory, Dictionary<string, FunctionDefinition> functionDefinitions)
+    {
+        Directory.CreateDirectory($"{outputDirectory}/src/reimplemented");
+        Directory.CreateDirectory($"{outputDirectory}/src/decompiled");
+        Directory.CreateDirectory($"{outputDirectory}/src/auto_generated");
+        for (int i = 0; i < functions.Length; i++)
+        {
+            CFile cFile = new CFile(functions[i]);
+            cFile.Write($"{outputDirectory}/src/auto_generated/{functions[i].split.Name}.c", functionDefinitions);
+        }
+    }
+    
+   
+    public static Instruction[] GetInstructions(byte[] functionData)
+    {
+        Instruction[] instructions = new Instruction[functionData.Length / 4];
+        for (int i = 0; i < instructions.Length; i++)
+        {
+            uint instructionData = BitConverter.ToUInt32(functionData, i * 4);
+            instructions[i] = GetInstruction(instructionData);
+        }
 
+        return instructions;
+    }
 }

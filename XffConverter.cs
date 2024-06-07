@@ -6,14 +6,14 @@ using System.Runtime.InteropServices;
 
 static class XFFConverter
 {
-    public static ELF.SectionHeader XffToElfSectionHeader(SectionHeader xff, ELF.SectionHeader.SH_Flags flags, int elementSize)
+    public static ELF.SectionHeader XffToElfSectionHeader(XFF.SectionHeader xff, ELF.SectionHeader.SH_Flags flags, int elementSize)
     {
         return new ELF.SectionHeader 
         {
             Type = xff.Type,
             Flags = flags,
             MemoryAddress = xff.MemoryAddress,
-            Size = xff.Length,
+            Length = xff.Length,
             Alignment = xff.Alignment,
             EntrySize = elementSize,
             Data = xff.Data
@@ -36,10 +36,10 @@ static class XFFConverter
 
         return new ELF.SectionHeader
         {
-            Type= ELF.SectionHeader.SH_Type.Relocatable,
+            Type= ISectionHeader.SH_Type.Relocatable,
             Flags = 0,
             MemoryAddress = relocation.virtmemPtr,
-            Size = relocation.relocationCount * 0x8,
+            Length = relocation.relocationCount * 0x8,
             Alignment = 0x8,
             EntrySize = 0x8,
             Data = data,
