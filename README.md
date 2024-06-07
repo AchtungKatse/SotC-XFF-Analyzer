@@ -1,7 +1,4 @@
 # Overview
-This program is meant to convert the executable files from Shadow of the Colossus (PS2) into a file that can be analyzed inside of ghidra. SotC uses a proprietary format for storing dynamically linked libraries (.XFF files) which cannot be loaded into Ghidra by default because function calls and object locations are relocated at runtime. This program reads the XFF files and main executable to find and apply these relocations and creates debug information for analysis in ghidra, including importing symbols.
-
-# Usage
-To use run "./XFF (Input Directory) (Output Directory)
-
-The input directory should be the .ISO files that have been extracted to a folder and contain the XFF's (GAMECORE.XFF, KERNEL.XFF, and MANAGER.XFF) and main executable (i.e. SCUS-*)
+This program is able to read the XFF files from Shadow of the Colossus (PS2), extract their symbols, and merge them into a binary that can be loaded into Ghidra. 
+Along with this, support for generating disassembly files for functions based on a split file to be compared against a recompilation in tools such as decomp.me.
+Support for static recompilation for a native PC port, which was inspired by the recent N64 Recomp tool, is being developed in this tool as well.
